@@ -1,0 +1,995 @@
+class ZIDT_C_INTEGRATE_TOOL definition
+  public
+  final
+  create public .
+
+public section.
+
+  class-methods CHECK_INTEGRATE_IS_AVAILABLE
+    importing
+      value(IV_INTEGRATE_ID) type ZIDT_E_INTEGRATE_ID optional
+      value(IV_SYSTEM_ID) type ZIDT_E_SYSTEM_ID optional
+      value(IV_RFC_NAME) type RS38L_FNAM optional
+    exporting
+      value(EV_MSGTX) type MSGTX
+      value(EV_MSGTY) type MSGTY
+      value(ES_IMPORT_PARAMENT) type ZIDT_S_IMPORT_PARAMENT .
+  class-methods WRITE_REFERENCE_NO
+    importing
+      !IS_EXPORT_PARAMENT type ZIDT_S_EXPORT_PARAMENT .
+  class-methods SET_CREATE_FIELD
+    changing
+      !IV_INPUT type ANY .
+  class-methods SET_MODIFY_FIELD
+    changing
+      !IV_INPUT type ANY .
+  class-methods WRITE_IMPORT_LOG
+    importing
+      !IS_IMPORT_PARAMENT type ZIDT_S_IMPORT_PARAMENT
+      !IV_IMPORT_DATAS type ANY optional .
+  class-methods WRITE_IMPORT_LOG_RFC
+    importing
+      value(IS_IMPORT_PARAMENT) type ZIDT_S_IMPORT_PARAMENT optional
+      value(IV_RFC_NAME) type RS38L_FNAM
+      value(IT_RFC_PARAMETER) type ZIDT_S_RFC_PARAMETERS .
+  class-methods WRITE_EXPORT_LOG
+    importing
+      !IS_EXPORT_PARAMENT type ZIDT_S_EXPORT_PARAMENT
+      !IV_EXPORT_DATAS type STRING optional .
+  class-methods GET_INTEGRATE_PARAMENT
+    importing
+      !IV_SYSTEM_ID type ZIDT_E_SYSTEM_ID optional
+      !IV_INTEGRATE_ID type ZIDT_E_INTEGRATE_ID
+    exporting
+      !ES_IMPORT_PARAMENT type ZIDT_S_IMPORT_PARAMENT .
+  class-methods SEND_JSON_TO_OUTSYST
+    importing
+      !IV_SYSTEM_ID type ZIDT_E_INTEGRATE_SYSTEM
+      !IV_INTEGRATE_ID type ZIDT_E_INTEGRATE_ID
+      !IV_SEND_USER type ANY optional
+      !IV_IMPORT_DATAS type STRING
+      !IV_REFERENCE_NO type STRING optional
+      !IV_SAP_NO type STRING optional
+    exporting
+      !EV_EXPORT_DATAS type STRING
+      !ES_EXPORT_PARAMENT type ZIDT_S_EXPORT_PARAMENT
+    exceptions
+      NO_CONFIGURE
+      NO_TOKEN
+      SUSPEND_USE .
+  class-methods GET_TOKEN_FROM_OUTSYST
+    importing
+      !IV_SYSTEM_ID type ZIDT_E_SYSTEM_ID
+      !IV_USER type ANY
+    exporting
+      !EV_TOKEN type STRING
+    exceptions
+      NO_TOKEN_CONFIGURE .
+  class-methods INSERT_INT_BUS_RELATIONSHIP
+    importing
+      !IV_INTEGRATE_GUID type ZIDT_E_INTEGRATE_GUID
+      !IV_REFERENCE_NO type ZIDT_E_REFERENCE_NO
+      !IV_SAP_NO type ZIDT_E_SAP_NO
+    exceptions
+      NO_REFERENCE_NO
+      NO_SAP_NO
+      DB_TABLE_WRITE_FAILED .
+  class-methods SEND_RESTFUL
+    importing
+      !IV_SYSTEM_ID type ZIDT_E_INTEGRATE_SYSTEM
+      !IV_INTEGRATE_ID type ZIDT_E_INTEGRATE_ID
+      !IV_SEND_USER type ANY optional
+      !IV_IMPORT_DATAS type STRING
+      !IV_REFERENCE_NO type STRING optional
+      !IV_SAP_NO type STRING optional
+    exporting
+      !EV_EXPOTY_DATAS type STRING
+    exceptions
+      NO_CONFIGURE
+      NO_TOKEN
+      SUSPEND_USE .
+  class-methods TRANS_STRU2XML
+    importing
+      !DATAOBJECT type ANY
+      !CONTROLXML type DCXMLINIT
+      !TAGNAME type STRING default 'DATA'
+    exporting
+      value(XML_XSTR) type XSTRING
+    returning
+      value(XML_STR) type STRING .
+  class-methods TRANS_XML2STRU
+    importing
+      !TABNAME type TABNAME
+      !XML_STR type STRING optional
+      !XML_XSTR type XSTRING optional
+    exporting
+      !DATAOBJECT type ANY
+      !RETMSG type BAPIRET2 .
+  class-methods RECODE_RFC_LOG
+    importing
+      value(IT_RFC_PARAMETER) type ZIDT_S_RFC_PARAMETERS optional
+      value(IV_RFC_NAME) type RS38L_FNAM
+      value(IS_SAP_MESSAGE) type ZIDT_S_SAP_MESSAGE .
+  class-methods WRITE_EXPORT_LOG_RFC
+    importing
+      value(IS_EXPORT_PARAMENT) type ZIDT_S_EXPORT_PARAMENT optional
+      value(IT_RFC_PARAMETER) type ZIDT_S_RFC_PARAMETERS optional
+      value(IV_RFC_NAME) type RS38L_FNAM .
+protected section.
+private section.
+ENDCLASS.
+
+
+
+CLASS ZIDT_C_INTEGRATE_TOOL IMPLEMENTATION.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>CHECK_INTEGRATE_IS_AVAILABLE
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_INTEGRATE_ID                TYPE        ZIDT_E_INTEGRATE_ID(optional)
+* | [--->] IV_SYSTEM_ID                   TYPE        ZIDT_E_SYSTEM_ID(optional)
+* | [--->] IV_RFC_NAME                    TYPE        RS38L_FNAM(optional)
+* | [<---] EV_MSGTX                       TYPE        MSGTX
+* | [<---] EV_MSGTY                       TYPE        MSGTY
+* | [<---] ES_IMPORT_PARAMENT             TYPE        ZIDT_S_IMPORT_PARAMENT
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD check_integrate_is_available.
+    IF iv_rfc_name  IS INITIAL
+      AND iv_integrate_id IS INITIAL
+      AND iv_system_id IS INITIAL.
+      ev_msgty = 'E'.
+      ev_msgtx = '接口无效'.
+    ENDIF.
+
+    IF iv_rfc_name IS NOT INITIAL.
+      SELECT SINGLE * FROM zidt_t_0002 INTO @DATA(ls_0002)
+        WHERE data_format = 'RFC'
+        AND function    = @iv_rfc_name.
+    ELSE.
+      SELECT SINGLE * FROM zidt_t_0002 INTO @ls_0002
+        WHERE system_id = @iv_system_id
+        AND integrate_id = @iv_integrate_id.
+    ENDIF.
+
+    IF ls_0002-stop = abap_true.
+      ev_msgty = 'E'.
+      ev_msgtx = '接口无已停用'.
+    ELSE.
+      IF ls_0002-log = abap_true.
+        IF es_import_parament-integrate_guid IS INITIAL.
+*   取得GUID
+          TRY .
+              es_import_parament-integrate_guid = cl_uuid_factory=>create_system_uuid( )->create_uuid_x16( ).
+            CATCH cx_uuid_error.
+
+          ENDTRY.
+        ENDIF.
+        MOVE-CORRESPONDING ls_0002 TO es_import_parament-import_detail.
+      ENDIF.
+    ENDIF.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>GET_INTEGRATE_PARAMENT
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_SYSTEM_ID                   TYPE        ZIDT_E_SYSTEM_ID(optional)
+* | [--->] IV_INTEGRATE_ID                TYPE        ZIDT_E_INTEGRATE_ID
+* | [<---] ES_IMPORT_PARAMENT             TYPE        ZIDT_S_IMPORT_PARAMENT
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD get_integrate_parament.
+*   取得配置信息
+    SELECT SINGLE
+      system_id,
+      integrate_id,
+      integrate_name,
+      stop,
+      access_sign
+      INTO @DATA(ls_integrate)
+      FROM zidt_t_0002
+     WHERE system_id    = @iv_system_id
+       AND integrate_id = @iv_integrate_id
+       AND stop         = @space.
+
+    MOVE-CORRESPONDING ls_integrate TO es_import_parament-import_detail.
+    es_import_parament-import_detail-integrate_user     = sy-uname.
+*    es_import_parament-import_detail-integrate_language = sy-langu.
+    CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
+      EXPORTING
+        input  = sy-langu
+      IMPORTING
+        output = es_import_parament-import_detail-integrate_language.
+
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>GET_TOKEN_FROM_OUTSYST
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_SYSTEM_ID                   TYPE        ZIDT_E_SYSTEM_ID
+* | [--->] IV_USER                        TYPE        ANY
+* | [<---] EV_TOKEN                       TYPE        STRING
+* | [EXC!] NO_TOKEN_CONFIGURE
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD get_token_from_outsyst.
+    DATA:
+      lv_iid    TYPE string,
+      ls_import TYPE zidt_s_import,
+      ls_export TYPE zidt_s_export.
+    DATA:
+      lr_import  TYPE REF TO data,
+      lr_export  TYPE REF TO data,
+      lcl_import TYPE REF TO cl_abap_structdescr,
+      lcl_export TYPE REF TO cl_abap_structdescr.
+
+    lv_iid = iv_system_id && '_TOKEN'.
+    SELECT SINGLE * INTO @DATA(ls_integrate) FROM zidt_t_0002
+     WHERE system_id    = @iv_system_id
+       AND integrate_id = @lv_iid.
+    IF sy-subrc <> 0.
+      RAISE no_token_configure.
+    ELSE.
+      TRY.
+          lcl_import ?= cl_abap_typedescr=>describe_by_name( EXPORTING p_name = ls_integrate-import_structure ).
+          CREATE DATA lr_import TYPE HANDLE lcl_import.
+          ASSIGN lr_import->* TO FIELD-SYMBOL(<lfs_import>).
+
+          lcl_export ?= cl_abap_typedescr=>describe_by_name( EXPORTING p_name = ls_integrate-export_structure ).
+          CREATE DATA lr_export TYPE HANDLE lcl_export.
+          ASSIGN lr_export->* TO FIELD-SYMBOL(<lfs_export>).
+        CATCH cx_root.
+          RAISE no_token_configure.
+      ENDTRY.
+    ENDIF.
+
+    CASE iv_system_id .
+      WHEN 'OA'.
+        ASSIGN COMPONENT 'USER_NAME' OF STRUCTURE <lfs_import> TO FIELD-SYMBOL(<lfs_user_name>).
+        IF sy-subrc = 0.
+          <lfs_user_name> = ls_integrate-username.
+        ENDIF.
+
+        ASSIGN COMPONENT 'PASSWORD' OF STRUCTURE <lfs_import> TO FIELD-SYMBOL(<lfs_password>).
+        IF sy-subrc = 0.
+          <lfs_password> = ls_integrate-password.
+        ENDIF.
+
+        ASSIGN COMPONENT 'LOGIN_NAME' OF STRUCTURE <lfs_import> TO FIELD-SYMBOL(<lfs_login_name>).
+        IF sy-subrc = 0.
+          <lfs_login_name> = iv_user.
+        ENDIF.
+      WHEN 'EIT'.
+        ASSIGN COMPONENT 'USERNAME' OF STRUCTURE <lfs_import> TO FIELD-SYMBOL(<lfs_username>).
+        IF sy-subrc = 0.
+          <lfs_username> = ls_integrate-username.
+        ENDIF.
+
+        ASSIGN COMPONENT 'PASSWORD' OF STRUCTURE <lfs_import> TO <lfs_password>.
+        IF sy-subrc = 0.
+          <lfs_password> = ls_integrate-password.
+        ENDIF.
+      WHEN OTHERS.
+    ENDCASE.
+
+    DATA(lv_token_json) = /ui2/cl_json=>serialize( data        = <lfs_import>
+                                                   compress    = abap_true
+                                                   pretty_name = /ui2/cl_json=>pretty_mode-camel_case ).
+
+    MOVE-CORRESPONDING ls_integrate TO ls_import-import_parament-import_detail.
+    ls_import-import_datas = lv_token_json.
+*   发送HTTP
+    CALL FUNCTION 'ZIDT_SET_HTTP'
+      EXPORTING
+        is_import = ls_import
+      IMPORTING
+        es_export = ls_export.
+    IF ls_export-export_datas IS NOT INITIAL.
+      /ui2/cl_json=>deserialize( EXPORTING json        = ls_export-export_datas
+                                           pretty_name = /ui2/cl_json=>pretty_mode-low_case
+                                 CHANGING  data        = <lfs_export> ).
+    ENDIF.
+
+    CASE iv_system_id .
+      WHEN 'OA'.
+        ASSIGN COMPONENT 'ID' OF STRUCTURE <lfs_export> TO FIELD-SYMBOL(<lfs_id>).
+        IF sy-subrc = 0.
+          ev_token = <lfs_id>.
+        ENDIF.
+      WHEN 'EIT'.
+        ASSIGN COMPONENT 'DATA-ACCESS_TOKEN' OF STRUCTURE <lfs_export> TO FIELD-SYMBOL(<lfs_access_token>).
+        IF sy-subrc = 0.
+          ev_token = <lfs_access_token>.
+        ENDIF.
+      WHEN OTHERS.
+    ENDCASE.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>INSERT_INT_BUS_RELATIONSHIP
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_INTEGRATE_GUID              TYPE        ZIDT_E_INTEGRATE_GUID
+* | [--->] IV_REFERENCE_NO                TYPE        ZIDT_E_REFERENCE_NO
+* | [--->] IV_SAP_NO                      TYPE        ZIDT_E_SAP_NO
+* | [EXC!] NO_REFERENCE_NO
+* | [EXC!] NO_SAP_NO
+* | [EXC!] DB_TABLE_WRITE_FAILED
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD INSERT_INT_BUS_RELATIONSHIP.
+    DATA ls_0003_bus TYPE zidt_t_0003_bus.
+*
+    IF iv_reference_no IS INITIAL.
+      RAISE no_reference_no.
+    ENDIF.
+*
+    IF iv_sap_no IS INITIAL.
+      RAISE no_sap_no.
+    ENDIF.
+
+    ls_0003_bus-integrate_guid = iv_integrate_guid.
+    ls_0003_bus-reference_no = iv_reference_no.
+    ls_0003_bus-sap_no = iv_sap_no.
+
+    TRY .
+        INSERT zidt_t_0003_bus FROM ls_0003_bus.
+      CATCH cx_sy_open_sql_db INTO DATA(lc_error).
+*        DATA(lv_message) = lc_error->get_text( ). "得到错误信息
+*        sy-subrc = 4.
+    ENDTRY.
+
+    IF sy-subrc = 0.
+      COMMIT WORK AND WAIT.
+    ELSE.
+      ROLLBACK WORK.
+    ENDIF.
+
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>RECODE_RFC_LOG
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IT_RFC_PARAMETER               TYPE        ZIDT_S_RFC_PARAMETERS(optional)
+* | [--->] IV_RFC_NAME                    TYPE        RS38L_FNAM
+* | [--->] IS_SAP_MESSAGE                 TYPE        ZIDT_S_SAP_MESSAGE
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD recode_rfc_log.
+    DATA lv_message TYPE string.
+    DATA lv_json TYPE string.
+    DATA lt_log TYPE STANDARD TABLE OF zidt_t_0003.
+    DATA ls_log TYPE zidt_t_0003.
+
+    IF iv_rfc_name IS INITIAL.
+      CALL METHOD zidt_c_report_tool=>add_msg
+        EXPORTING
+          iv_txt = '函数名不能为空'
+*         iv_sep = ';'
+        CHANGING
+          cv_msg = lv_message.
+    ELSE.
+      "
+      SELECT SINGLE * FROM zidt_t_0002 INTO @DATA(ls_0002)
+       WHERE function = @iv_rfc_name
+         AND stop = @abap_false.
+      IF sy-subrc <> 0.
+        CALL METHOD zidt_c_report_tool=>add_msg
+          EXPORTING
+            iv_txt = '函数未找到对应配置'
+*           iv_sep = ';'
+          CHANGING
+            cv_msg = lv_message.
+      ENDIF.
+    ENDIF.
+
+    IF lv_message IS NOT INITIAL.
+      RETURN.
+    ENDIF.
+    "
+    CALL FUNCTION 'ZIDT_SET_RFC_DATA'
+      EXPORTING
+        iv_rfc_name      = iv_rfc_name
+        it_rfc_parameter = it_rfc_parameter
+      IMPORTING
+        ev_json          = lv_json.
+
+    MOVE-CORRESPONDING ls_0002 TO ls_log.
+    TRY.
+        ls_log-integrate_guid = cl_system_uuid=>create_uuid_x16_static( ).
+      CATCH cx_uuid_error INTO DATA(lx_uuid).
+    ENDTRY.
+*     语言代码 内部->外部
+    CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
+      EXPORTING
+        input            = sy-langu
+      IMPORTING
+        output           = ls_log-integrate_language
+      EXCEPTIONS
+        unknown_language = 1
+        OTHERS           = 2.
+
+    ls_log-reference_no      = is_sap_message-reference_no.
+    ls_log-sap_no            = is_sap_message-sap_no.
+    ls_log-integrate_type    = is_sap_message-msgty.
+    ls_log-integrate_message = is_sap_message-msgtx.
+    ls_log-import_datas      = lv_json.
+    ls_log-export_datas      = lv_json.
+*   创建信息写入
+    zidt_c_integrate_tool=>set_create_field( CHANGING iv_input = ls_log ).
+*   修改信息写入
+    zidt_c_integrate_tool=>set_modify_field( CHANGING iv_input = ls_log ).
+
+    MODIFY zidt_t_0003 FROM ls_log.
+    IF sy-subrc = 0.
+      COMMIT WORK AND WAIT.
+    ELSE.
+      ROLLBACK WORK.
+    ENDIF.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>SEND_JSON_TO_OUTSYST
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_SYSTEM_ID                   TYPE        ZIDT_E_INTEGRATE_SYSTEM
+* | [--->] IV_INTEGRATE_ID                TYPE        ZIDT_E_INTEGRATE_ID
+* | [--->] IV_SEND_USER                   TYPE        ANY(optional)
+* | [--->] IV_IMPORT_DATAS                TYPE        STRING
+* | [--->] IV_REFERENCE_NO                TYPE        STRING(optional)
+* | [--->] IV_SAP_NO                      TYPE        STRING(optional)
+* | [<---] EV_EXPORT_DATAS                TYPE        STRING
+* | [<---] ES_EXPORT_PARAMENT             TYPE        ZIDT_S_EXPORT_PARAMENT
+* | [EXC!] NO_CONFIGURE
+* | [EXC!] NO_TOKEN
+* | [EXC!] SUSPEND_USE
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD send_json_to_outsyst.
+    DATA:
+      lv_url    TYPE string,
+      lv_token  TYPE string,
+      lv_user   TYPE string,
+      ls_import TYPE zidt_s_import,
+      ls_export TYPE zidt_s_export.
+*   取得GUID
+    TRY .
+        ls_import-import_parament-integrate_guid = cl_uuid_factory=>create_system_uuid( )->create_uuid_x16( ).
+      CATCH cx_uuid_error.
+
+    ENDTRY.
+    IF iv_send_user IS NOT INITIAL. "指定发送人员
+      lv_user = iv_send_user.
+    ELSE.
+      lv_user = sy-uname.
+    ENDIF.
+*   取得发送配置信息
+    SELECT SINGLE * INTO @DATA(ls_integrate)
+      FROM zidt_t_0002
+     WHERE system_id    = @iv_system_id
+       AND integrate_id = @iv_integrate_id
+       AND access_sign  = 'C'.
+    IF sy-subrc = 0.
+      IF ls_integrate-stop IS NOT INITIAL.  "停用标识
+        RAISE suspend_use.
+      ENDIF.
+      lv_url = ls_integrate-url.
+
+      SEARCH lv_url FOR 'token='.
+      IF sy-subrc = 0.  "需求TOKEN
+        CALL METHOD zidt_c_integrate_tool=>get_token_from_outsyst
+          EXPORTING
+            iv_system_id       = iv_system_id
+            iv_user            = lv_user
+          IMPORTING
+            ev_token           = lv_token
+          EXCEPTIONS
+            no_token_configure = 1
+            OTHERS             = 2.
+        IF sy-subrc <> 0.
+*         Implement suitable error handling here
+        ENDIF.
+        IF lv_token IS NOT INITIAL. "TOKEN写入
+          lv_url = lv_url && lv_token.
+        ELSE.
+          RAISE no_token. "抛出异常
+        ENDIF.
+      ENDIF.
+      MOVE-CORRESPONDING ls_integrate TO ls_import-import_parament-import_detail.
+      ls_import-import_parament-import_detail-integrate_user = sy-uname.
+      ls_import-import_datas = iv_import_datas.
+*     语言格式转换
+      CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
+        EXPORTING
+          input  = sy-langu
+        IMPORTING
+          output = ls_import-import_parament-import_detail-integrate_language.
+    ELSE.
+      RAISE no_configure.
+    ENDIF.
+
+    IF lv_url IS NOT INITIAL.
+*   写入导入记录
+      CALL METHOD zidt_c_integrate_tool=>write_import_log
+        EXPORTING
+          is_import_parament = ls_import-import_parament
+          iv_import_datas    = ls_import-import_datas.
+*   发送HTTP
+      CALL FUNCTION 'ZIDT_SET_HTTP'
+        EXPORTING
+          iv_url    = lv_url
+          is_import = ls_import
+        IMPORTING
+          es_export = ls_export.
+      ls_export-export_parament-reference_no = iv_reference_no.
+      ls_export-export_parament-sap_no = iv_sap_no.
+*   写入导出记录
+      CALL METHOD zidt_c_integrate_tool=>write_export_log
+        EXPORTING
+          is_export_parament = ls_export-export_parament
+          iv_export_datas    = ls_export-export_datas.
+    ENDIF.
+
+    es_export_parament = ls_export-export_parament.
+    ev_export_datas    = ls_export-export_datas.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>SEND_RESTFUL
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_SYSTEM_ID                   TYPE        ZIDT_E_INTEGRATE_SYSTEM
+* | [--->] IV_INTEGRATE_ID                TYPE        ZIDT_E_INTEGRATE_ID
+* | [--->] IV_SEND_USER                   TYPE        ANY(optional)
+* | [--->] IV_IMPORT_DATAS                TYPE        STRING
+* | [--->] IV_REFERENCE_NO                TYPE        STRING(optional)
+* | [--->] IV_SAP_NO                      TYPE        STRING(optional)
+* | [<---] EV_EXPOTY_DATAS                TYPE        STRING
+* | [EXC!] NO_CONFIGURE
+* | [EXC!] NO_TOKEN
+* | [EXC!] SUSPEND_USE
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD send_restful.
+    DATA:
+      lv_url    TYPE string,
+      lv_token  TYPE string,
+      lv_user   TYPE string,
+      ls_import TYPE zidt_s_import,
+      ls_export TYPE zidt_s_export.
+*   取得GUID
+    TRY .
+        ls_import-import_parament-integrate_guid = cl_uuid_factory=>create_system_uuid( )->create_uuid_x16( ).
+      CATCH cx_uuid_error.
+
+    ENDTRY.
+    IF iv_send_user IS NOT INITIAL. "指定发送人员
+      lv_user = iv_send_user.
+    ELSE.
+      lv_user = sy-uname.
+    ENDIF.
+*   取得发送配置信息
+    SELECT SINGLE * INTO @DATA(ls_integrate)
+      FROM zidt_t_0002
+     WHERE system_id    = @iv_system_id
+       AND integrate_id = @iv_integrate_id
+       AND access_sign  = 'C'.
+    IF sy-subrc = 0.
+      IF ls_integrate-stop IS NOT INITIAL.  "停用标识
+        RAISE suspend_use.
+      ENDIF.
+      lv_url = ls_integrate-url.
+
+      SEARCH lv_url FOR 'token='.
+      IF sy-subrc = 0.  "需求TOKEN
+        CALL METHOD zidt_c_integrate_tool=>get_token_from_outsyst
+          EXPORTING
+            iv_system_id       = iv_system_id
+            iv_user            = lv_user
+          IMPORTING
+            ev_token           = lv_token
+          EXCEPTIONS
+            no_token_configure = 1
+            OTHERS             = 2.
+        IF sy-subrc <> 0.
+*         Implement suitable error handling here
+        ENDIF.
+        IF lv_token IS NOT INITIAL. "TOKEN写入
+          lv_url = lv_url && lv_token.
+        ELSE.
+          RAISE no_token. "抛出异常
+        ENDIF.
+      ENDIF.
+      MOVE-CORRESPONDING ls_integrate TO ls_import-import_parament-import_detail.
+      ls_import-import_parament-import_detail-integrate_user = sy-uname.
+      ls_import-import_datas = iv_import_datas.
+*     语言格式转换
+      CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
+        EXPORTING
+          input  = sy-langu
+        IMPORTING
+          output = ls_import-import_parament-import_detail-integrate_language.
+    ELSE.
+      RAISE no_configure.
+    ENDIF.
+
+    IF lv_url IS NOT INITIAL.
+*   写入导入记录
+      CALL METHOD zidt_c_integrate_tool=>write_import_log
+        EXPORTING
+          is_import_parament = ls_import-import_parament
+          iv_import_datas    = ls_import-import_datas.
+*   发送HTTP
+      CALL FUNCTION 'ZIDT_SET_HTTP'
+        EXPORTING
+          iv_url    = lv_url
+          is_import = ls_import
+        IMPORTING
+          es_export = ls_export.
+      ls_export-export_parament-reference_no = iv_reference_no.
+      ls_export-export_parament-sap_no = iv_sap_no.
+*   写入导出记录
+      CALL METHOD zidt_c_integrate_tool=>write_export_log
+        EXPORTING
+          is_export_parament = ls_export-export_parament
+          iv_export_datas    = ls_export-export_datas.
+    ENDIF.
+
+    ev_expoty_datas = ls_export-export_datas.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>SET_CREATE_FIELD
+* +-------------------------------------------------------------------------------------------------+
+* | [<-->] IV_INPUT                       TYPE        ANY
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD SET_CREATE_FIELD.
+    ASSIGN COMPONENT 'CDATUM' OF STRUCTURE iv_input TO FIELD-SYMBOL(<lfs_cdatum>).
+    IF sy-subrc = 0.
+      <lfs_cdatum> = sy-datum.
+    ENDIF.
+
+    ASSIGN COMPONENT 'CUZEIT' OF STRUCTURE iv_input TO FIELD-SYMBOL(<lfs_cuzeit>).
+    IF sy-subrc = 0.
+      <lfs_cuzeit> = sy-uzeit.
+    ENDIF.
+
+    ASSIGN COMPONENT 'CUNAME' OF STRUCTURE iv_input TO FIELD-SYMBOL(<lfs_cuname>).
+    IF sy-subrc = 0.
+      <lfs_cuname> = sy-uname.
+    ENDIF.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>SET_MODIFY_FIELD
+* +-------------------------------------------------------------------------------------------------+
+* | [<-->] IV_INPUT                       TYPE        ANY
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD SET_MODIFY_FIELD.
+    ASSIGN COMPONENT 'MDATUM' OF STRUCTURE iv_input TO FIELD-SYMBOL(<lfs_cdatum>).
+    IF sy-subrc = 0.
+      <lfs_cdatum> = sy-datum.
+    ENDIF.
+
+    ASSIGN COMPONENT 'MUZEIT' OF STRUCTURE iv_input TO FIELD-SYMBOL(<lfs_cuzeit>).
+    IF sy-subrc = 0.
+      <lfs_cuzeit> = sy-uzeit.
+    ENDIF.
+
+    ASSIGN COMPONENT 'MUNAME' OF STRUCTURE iv_input TO FIELD-SYMBOL(<lfs_cuname>).
+    IF sy-subrc = 0.
+      <lfs_cuname> = sy-uname.
+    ENDIF.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>TRANS_STRU2XML
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] DATAOBJECT                     TYPE        ANY
+* | [--->] CONTROLXML                     TYPE        DCXMLINIT
+* | [--->] TAGNAME                        TYPE        STRING (default ='DATA')
+* | [<---] XML_XSTR                       TYPE        XSTRING
+* | [<-()] XML_STR                        TYPE        STRING
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD trans_stru2xml.
+    DATA: lo_xmldoc  TYPE REF TO cl_xml_document,
+          ls_control TYPE        dcxmlsercl,
+          lo_fault   TYPE REF TO cx_root.
+    CLEAR: xml_str,xml_xstr.
+    TRY.
+        ls_control-init_treat = controlxml.
+        CREATE OBJECT lo_xmldoc.
+        CALL METHOD lo_xmldoc->set_data
+          EXPORTING
+            dataobject = dataobject
+            control    = ls_control
+            name       = tagname.
+        CALL METHOD lo_xmldoc->render_2_string
+          IMPORTING
+            stream = xml_str.
+        REPLACE '"UTF-16"' IN xml_str WITH '"UTF-8"'.
+        REPLACE '"utf-16"' IN xml_str WITH '"UTF-8"'.
+        xml_xstr = cl_proxy_service=>cstring2xstring( xml_str ).
+        CLEAR lo_xmldoc.
+      CATCH cx_proxy_fault cx_ai_system_fault
+          cx_xms_system_error cx_transformation_error
+          cx_sxmlp cx_proxy_mapping_fault cx_soap_core cx_sy_create_data_error
+          cx_sy_dyn_call_illegal_func cx_sy_dyn_call_param_missing INTO lo_fault.
+        cl_proxy_service=>show_exception( exception = lo_fault type = 'I' ).
+    ENDTRY.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>TRANS_XML2STRU
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] TABNAME                        TYPE        TABNAME
+* | [--->] XML_STR                        TYPE        STRING(optional)
+* | [--->] XML_XSTR                       TYPE        XSTRING(optional)
+* | [<---] DATAOBJECT                     TYPE        ANY
+* | [<---] RETMSG                         TYPE        BAPIRET2
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD trans_xml2stru.
+    CALL FUNCTION 'ZIDT_TRANS_XML2STRU'
+      EXPORTING
+        tabname  = tabname
+        xml_str  = xml_str
+        xml_xstr = xml_xstr
+      IMPORTING
+        odata    = dataobject
+        retmsg   = retmsg.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>WRITE_EXPORT_LOG
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IS_EXPORT_PARAMENT             TYPE        ZIDT_S_EXPORT_PARAMENT
+* | [--->] IV_EXPORT_DATAS                TYPE        STRING(optional)
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD write_export_log.
+
+    CHECK is_export_parament IS NOT INITIAL.
+
+    SELECT SINGLE * INTO @DATA(ls_log)
+      FROM zidt_t_0003
+     WHERE integrate_guid = @is_export_parament-integrate_guid.
+
+    CHECK sy-subrc = 0.
+*   修改信息写入
+    zidt_c_integrate_tool=>set_modify_field( CHANGING iv_input = ls_log ).
+
+    MOVE-CORRESPONDING is_export_parament-export_detail TO ls_log.
+    ls_log-reference_no = is_export_parament-reference_no.
+    ls_log-sap_no       = is_export_parament-sap_no.
+    ls_log-export_datas = iv_export_datas.
+
+    MODIFY zidt_t_0003 FROM ls_log.
+    IF sy-subrc = 0.
+      COMMIT WORK AND WAIT.
+    ELSE.
+      ROLLBACK WORK.
+    ENDIF.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>WRITE_EXPORT_LOG_RFC
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IS_EXPORT_PARAMENT             TYPE        ZIDT_S_EXPORT_PARAMENT(optional)
+* | [--->] IT_RFC_PARAMETER               TYPE        ZIDT_S_RFC_PARAMETERS(optional)
+* | [--->] IV_RFC_NAME                    TYPE        RS38L_FNAM
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD write_export_log_rfc.
+    DATA lv_json TYPE string.
+
+    CHECK is_export_parament IS NOT INITIAL.
+
+    SELECT SINGLE * INTO @DATA(ls_log)
+      FROM zidt_t_0003
+     WHERE integrate_guid = @is_export_parament-integrate_guid.
+
+    CHECK sy-subrc = 0.
+*   修改信息写入
+    zidt_c_integrate_tool=>set_modify_field( CHANGING iv_input = ls_log ).
+
+    MOVE-CORRESPONDING is_export_parament-export_detail TO ls_log.
+    ls_log-reference_no = is_export_parament-reference_no.
+    ls_log-sap_no       = is_export_parament-sap_no.
+    "
+    CALL FUNCTION 'ZIDT_SET_RFC_DATA'
+      EXPORTING
+        iv_rfc_name      = iv_rfc_name
+        it_rfc_parameter = it_rfc_parameter
+      IMPORTING
+        ev_json          = lv_json.
+
+    ls_log-export_datas = lv_json.
+
+    MODIFY zidt_t_0003 FROM ls_log.
+    IF sy-subrc = 0.
+      COMMIT WORK AND WAIT.
+    ELSE.
+      ROLLBACK WORK.
+    ENDIF.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>WRITE_IMPORT_LOG
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IS_IMPORT_PARAMENT             TYPE        ZIDT_S_IMPORT_PARAMENT
+* | [--->] IV_IMPORT_DATAS                TYPE        ANY(optional)
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD write_import_log.
+
+    CHECK is_import_parament IS NOT INITIAL.
+
+    SELECT COUNT(*) FROM zidt_t_0002
+     WHERE system_id    = is_import_parament-import_detail-system_id
+       AND integrate_id = is_import_parament-import_detail-integrate_id
+       AND log = abap_true.
+
+    CHECK sy-subrc = 0.
+
+    SELECT SINGLE * INTO @DATA(ls_log)
+      FROM zidt_t_0003
+     WHERE integrate_guid = @is_import_parament-integrate_guid.
+    IF sy-subrc = 0.
+*     修改信息写入
+      zidt_c_integrate_tool=>set_modify_field( CHANGING iv_input = ls_log ).
+    ELSE.
+      ls_log-integrate_guid = is_import_parament-integrate_guid.
+*     创建信息写入
+      zidt_c_integrate_tool=>set_create_field( CHANGING iv_input = ls_log ).
+    ENDIF.
+
+    MOVE-CORRESPONDING is_import_parament-import_detail TO ls_log.
+    DATA(lv_lines) = strlen( is_import_parament-import_detail-integrate_language ).
+    IF lv_lines = 0.
+      " 按系统设置
+      CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
+        EXPORTING
+          input            = sy-langu
+        IMPORTING
+          output           = ls_log-integrate_language
+        EXCEPTIONS
+          unknown_language = 1
+          OTHERS           = 2.
+      IF sy-subrc <> 0.
+*       Implement suitable error handling here
+      ENDIF.
+    ELSEIF lv_lines = 1.
+*     语言代码 内部->外部
+      CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
+        EXPORTING
+          input            = is_import_parament-import_detail-integrate_language
+        IMPORTING
+          output           = ls_log-integrate_language
+        EXCEPTIONS
+          unknown_language = 1
+          OTHERS           = 2.
+      IF sy-subrc <> 0.
+*       Implement suitable error handling here
+      ENDIF.
+    ELSE.
+
+    ENDIF.
+    ls_log-import_datas = iv_import_datas.
+
+    MODIFY zidt_t_0003 FROM ls_log.
+    IF sy-subrc = 0.
+      COMMIT WORK AND WAIT.
+    ELSE.
+      ROLLBACK WORK.
+    ENDIF.
+
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>WRITE_IMPORT_LOG_RFC
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IS_IMPORT_PARAMENT             TYPE        ZIDT_S_IMPORT_PARAMENT(optional)
+* | [--->] IV_RFC_NAME                    TYPE        RS38L_FNAM
+* | [--->] IT_RFC_PARAMETER               TYPE        ZIDT_S_RFC_PARAMETERS
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD write_import_log_rfc.
+    DATA lv_json TYPE string.
+
+    CHECK is_import_parament IS NOT INITIAL.
+
+    SELECT COUNT(*) FROM zidt_t_0002
+     WHERE system_id    = is_import_parament-import_detail-system_id
+       AND integrate_id = is_import_parament-import_detail-integrate_id
+       AND log = abap_true.
+
+    CHECK sy-subrc = 0.
+
+    SELECT SINGLE * INTO @DATA(ls_log)
+      FROM zidt_t_0003
+     WHERE integrate_guid = @is_import_parament-integrate_guid.
+    IF sy-subrc = 0.
+*     修改信息写入
+      zidt_c_integrate_tool=>set_modify_field( CHANGING iv_input = ls_log ).
+    ELSE.
+      ls_log-integrate_guid = is_import_parament-integrate_guid.
+*     创建信息写入
+      zidt_c_integrate_tool=>set_create_field( CHANGING iv_input = ls_log ).
+    ENDIF.
+
+    MOVE-CORRESPONDING is_import_parament-import_detail TO ls_log.
+    DATA(lv_lines) = strlen( is_import_parament-import_detail-integrate_language ).
+    IF lv_lines = 0.
+      " 按系统设置
+      CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
+        EXPORTING
+          input            = sy-langu
+        IMPORTING
+          output           = ls_log-integrate_language
+        EXCEPTIONS
+          unknown_language = 1
+          OTHERS           = 2.
+      IF sy-subrc <> 0.
+*       Implement suitable error handling here
+      ENDIF.
+    ELSEIF lv_lines = 1.
+*     语言代码 内部->外部
+      CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
+        EXPORTING
+          input            = is_import_parament-import_detail-integrate_language
+        IMPORTING
+          output           = ls_log-integrate_language
+        EXCEPTIONS
+          unknown_language = 1
+          OTHERS           = 2.
+      IF sy-subrc <> 0.
+*       Implement suitable error handling here
+      ENDIF.
+    ELSE.
+
+    ENDIF.
+    "
+    CALL FUNCTION 'ZIDT_SET_RFC_DATA'
+      EXPORTING
+        iv_rfc_name      = iv_rfc_name
+        it_rfc_parameter = it_rfc_parameter
+      IMPORTING
+        ev_json          = lv_json.
+
+    ls_log-import_datas = lv_json.
+
+    MODIFY zidt_t_0003 FROM ls_log.
+    IF sy-subrc = 0.
+      COMMIT WORK AND WAIT.
+    ELSE.
+      ROLLBACK WORK.
+    ENDIF.
+
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZIDT_C_INTEGRATE_TOOL=>WRITE_REFERENCE_NO
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IS_EXPORT_PARAMENT             TYPE        ZIDT_S_EXPORT_PARAMENT
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD write_reference_no.
+    CHECK is_export_parament IS NOT INITIAL.
+
+    SELECT SINGLE * INTO @DATA(ls_log)
+      FROM zidt_t_0003
+     WHERE integrate_guid = @is_export_parament-integrate_guid.
+
+    CHECK sy-subrc = 0.
+*   更新参考单据号
+    UPDATE zidt_t_0003
+       SET reference_no = is_export_parament-reference_no
+     WHERE integrate_guid = is_export_parament-integrate_guid.
+    IF sy-subrc = 0.
+      COMMIT WORK AND WAIT.
+    ELSE.
+      ROLLBACK WORK.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.

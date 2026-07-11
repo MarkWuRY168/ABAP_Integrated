@@ -1,0 +1,221 @@
+class ZIDT_C_HTTP_HANDLER definition
+  public
+  final
+  create public .
+
+public section.
+
+  interfaces IF_HTTP_EXTENSION .
+protected section.
+private section.
+
+  methods POST
+    importing
+      value(IV_JSON) type STRING
+    exporting
+      value(EV_JSON) type STRING .
+ENDCLASS.
+
+
+
+CLASS ZIDT_C_HTTP_HANDLER IMPLEMENTATION.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZIDT_C_HTTP_HANDLER->IF_HTTP_EXTENSION~HANDLE_REQUEST
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] SERVER                         TYPE REF TO IF_HTTP_SERVER
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD IF_HTTP_EXTENSION~HANDLE_REQUEST.
+    DATA lv_output TYPE string.
+*   获取接口方式
+    DATA(lv_verb) = server->request->get_header_field( name = '~request_method' ).
+*   获取传入报文
+    DATA(lv_input) = server->request->if_http_entity~get_cdata( ).
+    CONDENSE lv_input.
+    CASE lv_verb.
+      WHEN 'GET'.
+*        server->response->set_status( code = 200 reason = 'Ok' ).
+*        server->response->set_content_type( 'application/json' ).
+*        server->response->set_cdata( data = lv_json ).
+      WHEN 'POST'.
+
+        CALL METHOD me->post
+          EXPORTING
+            iv_json = lv_input
+          IMPORTING
+            ev_json = lv_output.
+
+      WHEN 'PUT'.
+
+      WHEN 'DELETE'.
+
+      WHEN OTHERS.
+    ENDCASE.
+
+    IF lv_output IS NOT INITIAL.
+      server->response->set_status( code = 200 reason = 'OK' ).
+      server->response->set_content_type( 'application/json' ).
+      server->response->set_cdata( data = lv_output ).
+    ENDIF.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Private Method ZIDT_C_HTTP_HANDLER->POST
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_JSON                        TYPE        STRING
+* | [<---] EV_JSON                        TYPE        STRING
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD post.
+    DATA:
+      ls_log     TYPE zidt_t_0003,
+      ls_import  TYPE zidt_s_import,
+      ls_export  TYPE zidt_s_export,
+      lcl_import TYPE REF TO cl_abap_structdescr,
+      lcr_import TYPE REF TO data,
+      lcl_export TYPE REF TO cl_abap_structdescr,
+      lcr_export TYPE REF TO data.
+*   转换JSON到结构
+    /ui2/cl_json=>deserialize( EXPORTING json        = iv_json
+                                         pretty_name = /ui2/cl_json=>pretty_mode-camel_case
+                               CHANGING  data        = ls_import ).
+*   取得接口GUID
+    TRY.
+        CALL METHOD cl_system_uuid=>if_system_uuid_static~create_uuid_x16
+          RECEIVING
+            uuid = DATA(lv_guid).
+      CATCH cx_uuid_error.
+    ENDTRY.
+*   检查Interface GUID
+    IF ls_import-import_parament-integrate_guid IS INITIAL.
+      ls_import-import_parament-integrate_guid = lv_guid.
+    ELSE.
+      SELECT COUNT(*)
+        FROM zidt_t_0003
+       WHERE integrate_guid = ls_import-import_parament-integrate_guid.
+      IF sy-subrc = 0.
+        ls_import-import_parament-integrate_guid = lv_guid.
+        ls_export-export_parament-export_detail-integrate_type    = 'E'.
+        ls_export-export_parament-export_detail-integrate_message = TEXT-m06.
+      ENDIF.
+    ENDIF.
+*   检查传入值
+    IF ls_import IS INITIAL.
+      ls_export-export_parament-export_detail-integrate_type    = 'E'.
+      ls_export-export_parament-export_detail-integrate_message = TEXT-m05.
+    ENDIF.
+
+    IF ls_import-import_parament-import_detail-system_id IS INITIAL
+      OR ls_import-import_parament-import_detail-integrate_id IS INITIAL.
+      ls_export-export_parament-export_detail-integrate_type    = 'E'.
+      ls_export-export_parament-export_detail-integrate_message = TEXT-m05.
+    ENDIF.
+*   检查配置信息
+    IF ls_export-export_parament-export_detail-integrate_type IS INITIAL.
+      SELECT SINGLE
+        system_id,
+        integrate_id,
+        integrate_name,
+        stop,
+        access_sign,
+        function,
+        import_structure,
+        export_structure
+        INTO @DATA(ls_integrate)
+        FROM zidt_t_0002
+       WHERE system_id    = @ls_import-import_parament-import_detail-system_id
+         AND integrate_id = @ls_import-import_parament-import_detail-integrate_id.
+*     集成配置取得失败
+      IF sy-subrc <> 0.
+        ls_export-export_parament-export_detail-integrate_type    = 'E'.
+        ls_export-export_parament-export_detail-integrate_message = TEXT-m01.
+      ELSE.
+*       接口已停用
+        IF ls_integrate-stop IS NOT INITIAL.
+          ls_export-export_parament-export_detail-integrate_type    = 'E'.
+          ls_export-export_parament-export_detail-integrate_message = TEXT-m02.
+        ENDIF.
+*       接口方向错误
+        IF ls_integrate-access_sign <> 'S'.
+          ls_export-export_parament-export_detail-integrate_type    = 'E'.
+          ls_export-export_parament-export_detail-integrate_message = TEXT-m03.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+*   写入导入记录
+    CALL METHOD zidt_c_integrate_tool=>write_import_log
+      EXPORTING
+        is_import_parament = ls_import-import_parament
+        iv_import_datas    = iv_json.
+    MOVE-CORRESPONDING ls_import-import_parament TO ls_export-export_parament.
+*   调用配置函数
+    IF ls_export-export_parament-export_detail-integrate_type IS INITIAL.
+      TRY .
+          lcl_import ?= cl_abap_typedescr=>describe_by_name( EXPORTING p_name = ls_integrate-import_structure ).
+          CREATE DATA lcr_import TYPE HANDLE lcl_import.
+          ASSIGN lcr_import->* TO FIELD-SYMBOL(<lfs_import>).
+
+          lcl_export ?= cl_abap_typedescr=>describe_by_name( EXPORTING p_name = ls_integrate-export_structure ).
+          CREATE DATA lcr_export TYPE HANDLE lcl_export.
+          ASSIGN lcr_export->* TO FIELD-SYMBOL(<lfs_export>).
+        CATCH  cx_sy_move_cast_error.
+
+      ENDTRY.
+      IF <lfs_import> IS ASSIGNED
+        AND <lfs_export> IS ASSIGNED.
+*       转换JSON到结构话数据
+        /ui2/cl_json=>deserialize( EXPORTING json        = iv_json
+                                             pretty_name = /ui2/cl_json=>pretty_mode-camel_case
+                                   CHANGING  data        = <lfs_import> ).
+        ASSIGN COMPONENT 'IMPORT_PARAMENT' OF STRUCTURE <lfs_import> TO FIELD-SYMBOL(<lfs_import_parament>).
+        MOVE-CORRESPONDING ls_import-import_parament TO <lfs_import_parament>.
+        CALL FUNCTION ls_integrate-function
+          EXPORTING
+            is_import = <lfs_import>
+          IMPORTING
+            es_export = <lfs_export>.
+      ENDIF.
+    ENDIF.
+
+    IF <lfs_export> IS ASSIGNED.
+      ev_json = /ui2/cl_json=>serialize( data        = <lfs_export>
+                                         pretty_name = /ui2/cl_json=>pretty_mode-none ).
+
+      ASSIGN COMPONENT 'EXPORT_PARAMENT' OF STRUCTURE <lfs_export> TO FIELD-SYMBOL(<lfs_export_parament>).
+      MOVE-CORRESPONDING <lfs_export_parament> TO ls_export-export_parament.
+**      CJKB
+*      IF ls_export-export_parament-reference_no IS  INITIAL AND ls_export-export_parament-sap_no IS INITIAL.
+*        ASSIGN COMPONENT  'EXPORT_DATAS' OF STRUCTURE <lfs_export> TO FIELD-SYMBOL(<lfs_export_oano>).
+*        IF <lfs_export_oano> IS ASSIGNED.
+*          DATA:BEGIN OF ls_oano,
+*                 sap_no TYPE zsd_e_sapno,
+*                 oa_no  TYPE zsd_e_oano,
+*               END OF ls_oano.
+*          LOOP AT <lfs_export_oano> ASSIGNING FIELD-SYMBOL(<lfs_export_sing>).
+*
+*            CLEAR ls_oano.
+*            MOVE-CORRESPONDING <lfs_export_sing> TO ls_oano.
+*
+*            ls_export-export_parament-reference_no = ls_oano-oa_no.
+*            ls_export-export_parament-sap_no = ls_oano-sap_no.
+*
+*          ENDLOOP.
+*        ENDIF.
+*      ENDIF.
+**      CJKE
+    ELSE.
+      ev_json = /ui2/cl_json=>serialize( data        = ls_export
+                                         pretty_name = /ui2/cl_json=>pretty_mode-none ).
+
+    ENDIF.
+    IF ls_export-export_parament-integrate_guid IS INITIAL.
+      ls_export-export_parament-integrate_guid = ls_import-import_parament-integrate_guid.
+    ENDIF.
+*   写入导出记录
+    CALL METHOD zidt_c_integrate_tool=>write_export_log
+      EXPORTING
+        is_export_parament = ls_export-export_parament
+        iv_export_datas    = ev_json.
+  ENDMETHOD.
+ENDCLASS.
